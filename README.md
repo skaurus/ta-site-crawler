@@ -4,9 +4,9 @@ This repository is a solution to a test assigment that goes like this:
 > Crawler should download the document by the given URL and continue downloading by the links found in the document.
 >
 > Crawler should support resuming the download.
-> Crawler should download only text documents - html, css, js (ignore images, videos, etc.)
-> Crawler should download documents only from the same domain (ignore external links)
-> Crawler should be multithreaded (which parts to parallelize - is up to you)
+> Crawler should download only text documents - html, css, js (ignore images, videos, etc.).
+> Crawler should download documents only from the same domain (ignore external links).
+> Crawler should be multithreaded (which parts to parallelize - is up to you).
 >
 > Requirements are given informally on purpose.
 > We want to see how you will make decisions on your own, what is more important and what is less.
