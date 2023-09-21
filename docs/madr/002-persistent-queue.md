@@ -103,6 +103,8 @@ I love Redis, but this is definitely overkill. I would strongly prefer a self-co
     * has list datatype
     * it seems implied that it is thread-safe
     * it doesn't seem to have a lot of reliability-related open issues (I even checked chinese ones)
+    * uses generics
+    * tests look fairly extensive
     * seems to have nice [benchmark numbers](https://github.com/nutsdb/nutsdb/blob/master/docs/user_guides/benchmarks.md)... (for kv operations though)
     * persistent
 * Bad
