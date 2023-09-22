@@ -27,21 +27,21 @@ So, recently I decided to look for solutions that would augment the code to solv
 
 But the most important bits — which are, IMHO, goals and non-goals — I will list right here:
 - Goals:
-  - [ ] Recursively follow the links to the same domain (protocol and www subdomain are ignored)
-  - [ ] Do not download the same document twice
-  - [ ] Crawler work can be interrupted by Ctrl-C at any time (or it can crash...)
-  - [ ] Crawler must be able to resume the crawling after such an event
-  - [ ] Download only text documents - html, css, js
-  - [ ] Download only from the same domain
-  - [ ] Parse only the statically existing links (that were present in the HTML given to us by the server)
-  - [ ] Have reasonable timeouts on all requests
-  - [ ] Have a log file
-  - [ ] Support running on *nix systems
-  - [ ] Be multithreaded
-  - [ ] Be able to react adequately to the following errors:
-    - [ ] URL is unreachable (initial one or any of the found ones)
-    - [ ] output directory is... not a directory, not writable, etc
-    - [ ] crawling subfolder in output directory is not a directory, not writable, or has strange content not from our crawler, or that content seems to be broken
+  - [x] Recursively follow the links to the same domain (protocol and www subdomain are ignored)
+  - [x] Do not download the same document twice
+  - [x] Crawler work can be interrupted by Ctrl-C at any time (or it can crash...)
+  - [x] Crawler must be able to resume the crawling after such an event
+  - [x] Download only text documents - html, css, js
+  - [x] Download only from the same domain
+  - [x] Parse only the statically existing links (that were present in the HTML given to us by the server)
+  - [x] Have reasonable timeouts on all requests
+  - [x] Have a log file
+  - [x] Support running on *nix systems
+  - [x] Be multithreaded
+  - [x] Be able to react adequately to the following errors:
+    - [x] URL is unreachable (initial one or any of the found ones)
+    - [x] output directory is... not a directory, not writable, etc
+    - [x] crawling subfolder in output directory is not a directory, not writable, or has strange content not from our crawler, or that content seems to be broken
 - Possible goals:
   - [ ] Display what our threads are doing nicely in a console
   - [ ] Also, maybe show some runtime stats, like number of documents downloaded, number of links to be processed, average (median?) server response time and download speed etc
