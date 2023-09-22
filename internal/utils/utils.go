@@ -7,18 +7,46 @@ import (
 
 	"github.com/PuerkitoBio/purell"
 	"golang.org/x/net/idna"
+
+	"github.com/skaurus/ta-site-crawler/internal/settings"
 )
 
-// UrlToOutputFolder returns the name of the folder for a given domain
-func UrlToOutputFolder(urlObject *url.URL) string {
+func UrlToHost(urlObject *url.URL) string {
+	logger := settings.Get().Logger()
+
 	host, port := urlObject.Hostname(), urlObject.Port()
+	if urlObject.Scheme == "http" && port == "80" {
+		port = ""
+	} else if urlObject.Scheme == "https" && port == "443" {
+		port = ""
+	}
+	host, _ = strings.CutPrefix(host, "www.")
 
 	// totally not necessary, but I think that makes a user life easier when
 	// he looks for his crawling results (but FS must support unicode)
 	punycode := idna.New(idna.StrictDomainName(true))
-	host, err := punycode.ToUnicode(host)
-	if err != nil {
-		panic(fmt.Sprintf("can't convert host %s to unicode: %v", host, err))
+	punycodeHost, err := punycode.ToUnicode(host)
+	if err == nil {
+		host = punycodeHost
+	} else {
+		logger.Error().Err(err).Str("host", host).Msg("can't punycode host")
+	}
+
+	if len(port) > 0 {
+		host = host + ":" + port
+	}
+
+	return host
+}
+
+// UrlToOutputFolder returns the name of the folder for a given domain
+func UrlToOutputFolder(urlObject *url.URL) string {
+	host := UrlToHost(urlObject)
+	var port string
+	if strings.Contains(host, ":") {
+		parts := strings.Split(host, ":")
+		host = parts[0]
+		port = parts[1]
 	}
 
 	subfolder := strings.Join(strings.Split(host, "."), "_")

@@ -10,24 +10,39 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/pflag"
 
 	"github.com/skaurus/ta-site-crawler/internal/crawler"
 	"github.com/skaurus/ta-site-crawler/internal/queue"
+	"github.com/skaurus/ta-site-crawler/internal/settings"
 	"github.com/skaurus/ta-site-crawler/internal/utils"
 )
 
 var (
-	urlFlagValue string
-	urlObject    *url.URL
-	outputDir    string
-	workersCnt   uint8
+	runtimeSettings settings.Settings
+)
+
+const (
+	logFilename = "crawler.log"
 )
 
 func init() {
+	var (
+		urlFlagValue string
+		urlObject    *url.URL
+		outputDir    string
+		workersCnt   uint8
+		logToStdout  bool
+		httpTimeout  uint16
+	)
+
 	pflag.StringVarP(&urlFlagValue, "url", "u", "", "valid url where to start crawling")
 	pflag.StringVarP(&outputDir, "output-dir", "d", "", "output directory to save results")
 	pflag.Uint8VarP(&workersCnt, "workers", "w", 1, "number of workers to work in parallel")
+	pflag.BoolVarP(&logToStdout, "log-to-stdout", "c", false, "log to stdout instead of file")
+	pflag.Uint16VarP(&httpTimeout, "http-timeout", "t", 5, "HTTP timeout in seconds")
 
 	pflag.Parse()
 
@@ -67,19 +82,38 @@ func init() {
 		panic(fmt.Sprintf("can't create subfolder %s: %v", outputDir, err))
 	}
 	fmt.Printf("using %s as a crawler output dir\n", outputDir)
+
+	// we should have a setting for dev/prod environment, and on prod we should
+	// log from level Error or something like that
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	if logToStdout {
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
+	} else {
+		logFullPath := outputDir + "/" + logFilename
+		logFile, err := os.OpenFile(logFullPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			panic(fmt.Sprintf("can't create logfile %s: %v", logFullPath, err))
+		}
+		log.Logger = zerolog.New(logFile).With().Timestamp().Logger()
+	}
+	fmt.Printf("logfile is %s inside output dir\n", logFilename)
+
+	runtimeSettings = settings.Save(urlObject, outputDir, workersCnt, &log.Logger, httpTimeout)
 }
 
 func main() {
+	logger := runtimeSettings.Logger()
+
 	// this method tries to open already existing queue, or if it does not exist —
 	// creates a new one and populates it with provided starting URL
-	q, err := queue.Init(outputDir, urlObject.String())
+	q, err := queue.Init(runtimeSettings)
 	if err != nil {
 		panic(fmt.Sprintf("can't initialize queue: %v", err))
 	}
 	defer func() {
 		err := q.Cleanup()
 		if err != nil {
-			fmt.Printf("can't cleanup queue: %v", err)
+			logger.Error().Err(err).Msg("can't cleanup queue")
 		}
 	}()
 
@@ -90,11 +124,11 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := sync.WaitGroup{}
-	wg.Add(int(workersCnt))
+	wg.Add(int(runtimeSettings.WorkersCnt()))
 	// this method starts requested number of goroutines
 	// ctx is used to stop them
 	// wg is used to wait for them to finish
-	err = crawler.SpawnWorkers(ctx, &wg, q, outputDir, workersCnt)
+	err = crawler.SpawnWorkers(ctx, &wg, q, runtimeSettings)
 	if err != nil {
 		cancel() // just in case
 		panic(fmt.Sprintf("can't spawn workers: %v", err))
@@ -104,7 +138,7 @@ forLoop:
 	for {
 		select {
 		case sig := <-sigCh:
-			fmt.Printf("got signal %s, exiting...\n", sig)
+			logger.Warn().Any("sig", sig).Msg("got signal, exiting...")
 			cancel()
 			break forLoop
 		}
@@ -112,14 +146,10 @@ forLoop:
 	close(sigCh)
 
 	wg.Wait()
-	fmt.Printf("exited\n")
+	logger.Warn().Msg("exited")
 
 	// TODO
-	// figure out what to do if some goroutine gets the url; starts writing .temp file; other subroutine adds the same url to the queue (it is not in a queue right now! it seems to be unique!); some goroutine starts working on that url as well, overwriting .temp file; BOOM (or not BOOM? what's so bad in occasional overwriting?)
-	// log to file
 	// currently we can ask goroutines to stop from the main. we need to be able to ask main to exit from goroutines
-	// filter out links to other sites
-	// we need to have a set of already successfully processed urls, otherwise we will be adding them over and over while parsing heavy sites
 }
 
 func reportFlagsError(errText string) {

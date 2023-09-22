@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/nutsdb/nutsdb"
+
+	"github.com/skaurus/ta-site-crawler/internal/settings"
 )
 
 type queue struct {
@@ -15,6 +17,8 @@ type Queue interface {
 	Cleanup() error
 	AddTask(string) error
 	GetTask() (string, error)
+	MarkAsProcessed(string) error
+	IsProcessed(string) (bool, error)
 }
 
 var (
@@ -27,17 +31,19 @@ const (
 )
 
 var (
-	mainListKey = []byte("mainList")
-	mainSetKey  = []byte("mainSet")
+	mainListKey     = []byte("mainList")
+	mainSetKey      = []byte("mainSet")
+	processedSetKey = []byte("processedSet")
 )
 
 // Init opens existing queue or creates a new one and returns the queue instance
 // Don't forget to call defer queue.Cleanup() in appropriate place!
-func Init(workingDir string, startingURL string) (Queue, error) {
-	// TODO: detect if queue did not exist previously and if so populate it with startingURL
+func Init(runtimeSettings settings.Settings) (Queue, error) {
+	logger := runtimeSettings.Logger()
+
 	db, err := nutsdb.Open(
 		nutsdb.DefaultOptions,
-		nutsdb.WithDir(workingDir),
+		nutsdb.WithDir(runtimeSettings.OutputDir()),
 	)
 	if err != nil {
 		return nil, err
@@ -48,14 +54,14 @@ func Init(workingDir string, startingURL string) (Queue, error) {
 			fmt.Printf("init\n")
 			queueSize, err := tx.LSize(listBucket, mainListKey)
 			if err != nil && !errors.Is(err, nutsdb.ErrListNotFound) {
-				fmt.Printf("LSize failed\n")
+				logger.Debug().Err(err).Msg("LSize failed")
 				return err
 			}
 			if queueSize > 0 {
 				return nil
 			}
 
-			val := []byte(startingURL)
+			val := []byte(runtimeSettings.URL().String())
 			return addTask(tx, val)
 		},
 	)
@@ -70,23 +76,25 @@ func (q *queue) Cleanup() error {
 }
 
 func addTask(tx *nutsdb.Tx, val []byte) error {
-	fmt.Printf("addTask\n")
+	logger := settings.Get().Logger()
+
+	logger.Debug().Msg("addTask")
 	exists, err := tx.SIsMember(setBucket, mainSetKey, val)
 	if err != nil && !errors.Is(err, nutsdb.ErrBucketNotFound) {
-		fmt.Printf("SIsMember failed\n")
+		logger.Debug().Err(err).Msg("SIsMember failed")
 		return err
 	}
 	if exists {
 		return ErrStringAlreadyInQueue
 	}
 
-	fmt.Printf("adding %s to queue\n", val)
+	logger.Debug().Str("val", string(val)).Msg("adding to queue")
 	if err := tx.RPush(listBucket, mainListKey, val); err != nil {
-		fmt.Printf("RPush failed\n")
+		logger.Debug().Err(err).Msg("RPush failed")
 		return err
 	}
 	if err := tx.SAdd(setBucket, mainSetKey, val); err != nil {
-		fmt.Printf("SAdd failed\n")
+		logger.Debug().Err(err).Msg("SAdd failed")
 		return err
 	}
 
@@ -109,24 +117,26 @@ func (q *queue) AddTask(value string) (err error) {
 }
 
 func getTask(tx *nutsdb.Tx) (val []byte, err error) {
-	fmt.Printf("getTask\n")
+	logger := settings.Get().Logger()
+
+	logger.Debug().Msg("getTask")
 	val, err = tx.LPop(listBucket, mainListKey)
 	if err != nil {
 		// nutsdb.ErrRecordIsNil should be exported error, but it is not...
 		if err.Error() == "the record is nil" {
 			return val, nil
 		} else {
-			fmt.Printf("LPop failed\n")
+			logger.Debug().Err(err).Msg("LPop failed")
 			return nil, err
 		}
 	}
 	err = tx.SRem(setBucket, mainSetKey, val)
 	if err != nil {
-		fmt.Printf("SRem failed\n")
+		logger.Debug().Err(err).Msg("SRem failed")
 		return nil, err
 	}
 
-	fmt.Printf("got %s from queue\n", val)
+	logger.Debug().Str("val", string(val)).Msg("got from queue")
 	return val, nil
 }
 
@@ -143,4 +153,36 @@ func (q *queue) GetTask() (value string, err error) {
 	}
 
 	return string(val), nil
+}
+
+func (q *queue) MarkAsProcessed(value string) (err error) {
+	err = q.nutsDB.Update(
+		func(tx *nutsdb.Tx) error {
+			val := []byte(value)
+			return tx.SAdd(setBucket, processedSetKey, val)
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (q *queue) IsProcessed(value string) (isProcessed bool, err error) {
+	err = q.nutsDB.View(
+		func(tx *nutsdb.Tx) error {
+			val := []byte(value)
+			isProcessed, err = tx.SIsMember(setBucket, processedSetKey, val)
+			return err
+		},
+	)
+	if err != nil {
+		if errors.Is(err, nutsdb.ErrBucketNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return isProcessed, nil
 }

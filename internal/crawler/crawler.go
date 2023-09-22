@@ -19,6 +19,7 @@ import (
 	"golang.org/x/net/publicsuffix"
 
 	"github.com/skaurus/ta-site-crawler/internal/queue"
+	"github.com/skaurus/ta-site-crawler/internal/settings"
 	"github.com/skaurus/ta-site-crawler/internal/utils"
 )
 
@@ -37,6 +38,7 @@ var (
 )
 
 const (
+	crawlingDir     = "crawled"
 	rootFilename    = "index"
 	filePermissions = 0644
 	dirPermissions  = 0755
@@ -48,6 +50,8 @@ var (
 
 	cookieJar  *cookiejar.Jar
 	httpClient *http.Client
+
+	pauseBetweenJobs = 200 * time.Millisecond
 
 	// https://stackoverflow.com/a/48704300/320345
 	allowedContentTypes2Ext = map[string]string{
@@ -83,7 +87,7 @@ func init() {
 
 	httpClient = &http.Client{
 		Jar:     cookieJar,
-		Timeout: 5 * time.Second, // TODO make it configurable with flag
+		Timeout: time.Duration(settings.Get().HTTPTimeout()) * time.Second,
 	}
 }
 
@@ -92,10 +96,9 @@ func init() {
 // q is a queue to get urls from
 // outputDir is a directory to save results
 // n is a number of workers to spawn
-func SpawnWorkers(ctx context.Context, wg *sync.WaitGroup, q queue.Queue, outputDir string, n uint8) error {
-	outputDir = outputDir + "/crawled"
-	for i := uint8(0); i < n; i++ {
-		w := newWorker(q, outputDir)
+func SpawnWorkers(ctx context.Context, wg *sync.WaitGroup, q queue.Queue, runtimeSettings settings.Settings) error {
+	for i := uint8(0); i < runtimeSettings.WorkersCnt(); i++ {
+		w := newWorker(q, runtimeSettings.OutputDir()+"/"+crawlingDir)
 		go w.Run(ctx, wg)
 	}
 
@@ -114,43 +117,47 @@ func newWorker(q queue.Queue, outputDir string) (w Worker) {
 }
 
 func (w *worker) Run(ctx context.Context, wg *sync.WaitGroup) {
-	fmt.Printf("worker %d is started\n", w.id)
+	logger := settings.Get().Logger()
+
+	logger.Info().Uint8("workerID", w.id).Msg("worker is started")
 
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Printf("worker %d is done\n", w.id)
+			logger.Info().Uint8("workerID", w.id).Msg("worker is done")
 			wg.Done()
 			return
 		default:
 			// let's not hammer our queue with requests
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(pauseBetweenJobs)
 
 			err := w.work()
 			if err != nil {
 				if errors.Is(err, ErrNoWorkToDo) {
-					fmt.Printf("worker %d has no work to do\n", w.id)
+					logger.Info().Uint8("workerID", w.id).Msg("worker has no work to do")
 					// let's check if anything at all is at work right now
 					// if there are no jobs and no one is doing anything — we can stop
 					// (I'm not completely happy with this solution — bc now we have ctx,
 					// wg and atomic uint. I was thinking about storing "working on" set
 					// in NutsDB, but that would pose its own reliability problems)
 					if tasksInProgress == 0 {
-						fmt.Printf("worker %d is done\n", w.id)
+						logger.Info().Uint8("workerID", w.id).Msg("worker is done")
 						wg.Done()
 						return
 					}
 				}
-				fmt.Printf("worker %d got an error: %v\n", w.id, err)
+				logger.Error().Uint8("workerID", w.id).Err(err).Msg("worker got an error")
 			}
 		}
 	}
 }
 
 func (w *worker) work() (err error) {
+	logger := settings.Get().Logger()
+
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Printf("worker %d recovered from: %v\n", w.id, err)
+			logger.Error().Uint8("workerID", w.id).Any("recover", err).Msg("worker recovered from panic")
 		}
 	}()
 
@@ -161,7 +168,7 @@ func (w *worker) work() (err error) {
 	if len(urlString) == 0 {
 		return ErrNoWorkToDo
 	}
-	fmt.Printf("worker %d got a task: %s\n", w.id, urlString)
+	logger.Info().Uint8("workerID", w.id).Str("task", urlString).Msg("worker got a task")
 
 	atomic.AddUint32(&tasksInProgress, 1)
 	// 🤯, but the "smart guys" say that "every" programmer should know what
@@ -175,12 +182,12 @@ func (w *worker) work() (err error) {
 
 	urlObject, err := url.Parse(urlString)
 	if err != nil {
-		fmt.Printf("worker %d can't parse an url [%s]: %v\n", w.id, urlString, err)
+		logger.Error().Uint8("workerID", w.id).Err(err).Str("task", urlString).Msg("worker can't parse an url")
 		return err
 	}
 	if !urlObject.IsAbs() {
-		fmt.Printf("worker %d got not an absolute url: %s\n", w.id, urlString)
-		return err
+		logger.Error().Uint8("workerID", w.id).Err(err).Str("task", urlString).Msg("worker got not an absolute url")
+		return nil
 	}
 
 	// convert URL path to a file path and name
@@ -196,23 +203,23 @@ func (w *worker) work() (err error) {
 		filename = rootFilename // we will try to add relevant extension later
 	}
 	subfolder := strings.Join(urlPathElements[:len(urlPathElements)-1], "/")
-	fmt.Printf("worker %d got an url with filename %s and subfolder %s\n", w.id, filename, subfolder)
+	logger.Debug().Uint8("workerID", w.id).Str("urlPath", urlObject.Path).Str("filename", filename).Str("subfolder", subfolder).Msg("worker got filename and subfolder from url")
 	fullFilename := w.outputDir + "/" + subfolder + "/" + filename
 
 	// check if the file is already downloaded; if it is, there is nothing to do
 	err = os.MkdirAll(w.outputDir+"/"+subfolder, dirPermissions)
 	if err != nil {
-		fmt.Printf("worker %d can't create folder %s/%s: %v\n", w.id, w.outputDir, subfolder, err)
+		logger.Error().Uint8("workerID", w.id).Err(err).Str("folder", w.outputDir+"/"+subfolder).Msg("worker can't create path folder")
 		return err
 	}
 	if _, err := os.Stat(fullFilename); err == nil {
-		fmt.Printf("worker %d found existing file %s, skipping\n", w.id, fullFilename)
+		logger.Error().Uint8("workerID", w.id).Str("fullFilename", fullFilename).Msg("worker found existing file, skipping")
 		return err
 	}
 
 	resp, err := httpClient.Get(urlString)
 	if err != nil {
-		fmt.Printf("worker %d got an http error: %v\n", w.id, err)
+		logger.Error().Uint8("workerID", w.id).Err(err).Msg("worker got an http error")
 		return err
 	}
 	defer func() {
@@ -220,7 +227,7 @@ func (w *worker) work() (err error) {
 	}()
 
 	if statusOK := resp.StatusCode >= 200 && resp.StatusCode < 300; !statusOK {
-		fmt.Printf("worker %d got a bad http status code: %d\n", w.id, resp.StatusCode)
+		logger.Warn().Uint8("workerID", w.id).Int("statusCode", resp.StatusCode).Msg("worker got bad http status code")
 		return nil
 	}
 
@@ -234,7 +241,7 @@ func (w *worker) work() (err error) {
 	}
 	fileExt, ok := allowedContentTypes2Ext[contentType]
 	if !ok {
-		fmt.Printf("worker %d got a non-text content-type [%s] for [%s]\n", w.id, contentType, urlString)
+		logger.Warn().Uint8("workerID", w.id).Str("contentType", contentType).Str("urlString", urlString).Msg("worker got a non-text content-type")
 		return nil
 	}
 	fullFilenameWithoutExt := ""
@@ -247,25 +254,25 @@ func (w *worker) work() (err error) {
 	// os.O_CREATE|os.O_EXCL requires file to not exist
 	tempFile, err := os.OpenFile(fullFilename+".temp", os.O_WRONLY|os.O_CREATE|os.O_EXCL, filePermissions)
 	if err != nil {
-		fmt.Printf("worker %d can't create a temp file %s.temp: %v\n", w.id, fullFilename, err)
+		logger.Error().Uint8("workerID", w.id).Err(err).Str("fullFilename_temp", fullFilename+".temp").Msg("worker can't create a temp file")
 		return err
 	}
 	// io.Copy directly to tempFile would be nice, but we will need the body later
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Printf("worker %d can't read response body: %v\n", w.id, err)
+		logger.Error().Uint8("workerID", w.id).Err(err).Msg("worker can't read response body")
 		return err
 	}
 	_, err = tempFile.Write(body)
 	if err != nil {
-		fmt.Printf("worker %d can't write response body to a temp file %s.temp: %v\n", w.id, fullFilename, err)
+		logger.Error().Uint8("workerID", w.id).Err(err).Str("fullFilename_temp", fullFilename+".temp").Msg("worker can't write response body to a temp file")
 		return err
 	}
 
 	// now we can atomically rename the file
 	err = os.Rename(fullFilename+".temp", fullFilename)
 	if err != nil {
-		fmt.Printf("worker %d can't rename temp file %s.temp to %s: %v\n", w.id, fullFilename, fullFilename, err)
+		logger.Error().Uint8("workerID", w.id).Err(err).Str("fullFilename_temp", fullFilename+".temp").Str("fullFilename", fullFilename).Msg("worker can't rename temp file")
 		return err
 	}
 	// to make that early exit above ("found existing file, skipping") work, we
@@ -279,6 +286,10 @@ func (w *worker) work() (err error) {
 			filePermissions,
 		)
 	}
+	err = w.q.MarkAsProcessed(urlString)
+	if err != nil {
+		logger.Error().Uint8("workerID", w.id).Err(err).Str("urlString", urlString).Msg("worker can't mark url as processed")
+	}
 
 	// now we need to parse the body and find all links from the same domain.
 	// of course, in production I would write a simple regexp to do this... /sarcasm
@@ -289,9 +300,11 @@ func (w *worker) work() (err error) {
 	}
 	doc, err := html.Parse(bytes.NewReader(body))
 	if err != nil {
-		fmt.Printf("worker %d can't parse html from %s: %v\n", w.id, urlString, err)
+		logger.Error().Uint8("workerID", w.id).Err(err).Str("urlString", urlString).Msg("worker can't parse html")
 		return err
 	}
+
+	foundURLs := make([]string, 0)
 	// https://pkg.go.dev/golang.org/x/net/html#example-Parse
 	var parseNode func(*html.Node)
 	parseNode = func(n *html.Node) {
@@ -300,24 +313,7 @@ func (w *worker) work() (err error) {
 			if ok {
 				for _, a := range n.Attr {
 					if a.Key == lookingForAttr {
-						newUrlObject, err := url.Parse(a.Val)
-						// I don't like nested conditions like that, usually I prefer
-						// an early exit style. But here we have break in the end,
-						// and I don't want to copy it to each early exit point even more
-						if err != nil {
-							fmt.Printf("worker %d can't parse an url [%s]: %v\n", w.id, a.Val, err)
-						} else {
-							newUrlObject = urlObject.ResolveReference(newUrlObject)
-							newUrlObject, err = utils.NormalizeUrlObject(newUrlObject)
-							if err != nil {
-								fmt.Printf("worker %d can't parse normalized version of url [%s]: %v\n", w.id, a.Val, err)
-							} else {
-								err = w.q.AddTask(newUrlObject.String())
-								if err != nil {
-									fmt.Printf("worker %d can't add a task [%s]: %v\n", w.id, newUrlObject.String(), err)
-								}
-							}
-						}
+						foundURLs = append(foundURLs, a.Val)
 						break
 					}
 				}
@@ -328,6 +324,38 @@ func (w *worker) work() (err error) {
 		}
 	}
 	parseNode(doc)
+
+	workingHost := utils.UrlToHost(urlObject)
+	for _, foundURL := range foundURLs {
+		newUrlObject, err := url.Parse(foundURL)
+		if err != nil {
+			logger.Error().Uint8("workerID", w.id).Err(err).Str("foundURL", foundURL).Msg("worker can't parse found url")
+			continue
+		}
+
+		newUrlObject = urlObject.ResolveReference(newUrlObject)
+		newUrlObject, err = utils.NormalizeUrlObject(newUrlObject)
+		if err != nil {
+			logger.Error().Uint8("workerID", w.id).Err(err).Str("foundURL", foundURL).Msg("worker can't parse normalized version of found url")
+		}
+
+		if utils.UrlToHost(newUrlObject) != workingHost {
+			continue
+		}
+
+		isProcessed, err := w.q.IsProcessed(foundURL)
+		if err != nil {
+			logger.Error().Uint8("workerID", w.id).Err(err).Str("foundURL", foundURL).Msg("worker can't check if found url is processed")
+		}
+		if isProcessed {
+			continue
+		}
+
+		err = w.q.AddTask(foundURL)
+		if err != nil {
+			logger.Error().Uint8("workerID", w.id).Err(err).Str("foundURL", foundURL).Msg("worker can't add found url to queue")
+		}
+	}
 
 	return nil
 }
