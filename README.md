@@ -57,6 +57,8 @@ Building is easy:
 `go build -o crawler ./cmd/crawler`
 
 Running is not so hard either:
-`./crawler --url https://bbcgoodfood.com --workers 10 --output-dir ~/crawled-sites`
+`./crawler --url https://bbcgoodfood.com --workers 10 --output-dir ~/crawled-sites -с`
 
 Crawler will create a subfolder inside a given output directory, and will download all the documents there. Also, it will be able to resume work if such subfolder already exists.
+
+`--log-to-stdout/-c` (`c` for console) flag will make it log to STDOUT for better visibility. Also you can set the HTTP requests timeout with `--http-timeout/-t` flag (default is 5 seconds).
