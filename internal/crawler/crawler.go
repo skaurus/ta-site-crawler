@@ -193,7 +193,7 @@ func (w *worker) work() (err error) {
 	// convert URL path to a file path and name
 	// path could be empty, file name could be empty as well (e.g., https://example.com/
 	// or https://example.com/path/), but we will handle it
-	fmt.Printf("worker %d got an url with path %s\n", w.id, urlObject.Path)
+	logger.Debug().Uint8("workerID", w.id).Str("urlPath", urlObject.Path).Msg("worker got url path")
 	urlPath := strings.TrimPrefix(strings.TrimSuffix(urlObject.Path, "/"), "/")
 	urlPathElements := strings.Split(urlPath, "/")
 	filename := urlPathElements[len(urlPathElements)-1]
