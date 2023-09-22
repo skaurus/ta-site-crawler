@@ -78,8 +78,7 @@ var (
 	}
 )
 
-func init() {
-	var err error
+func Init() (err error) {
 	cookieJar, err = cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	if err != nil {
 		panic(fmt.Sprintf("can't create cookie jar: %v", err))
@@ -89,6 +88,8 @@ func init() {
 		Jar:     cookieJar,
 		Timeout: time.Duration(settings.Get().HTTPTimeout()) * time.Second,
 	}
+
+	return nil
 }
 
 // SpawnWorkers spawns n workers and returns an error if any
@@ -245,7 +246,7 @@ func (w *worker) work() (err error) {
 		return nil
 	}
 	fullFilenameWithoutExt := ""
-	// besided filenameWasEmpty case, we can have non-empty filenames without
+	// besides filenameWasEmpty case, we can have non-empty filenames without
 	// the extension. let's make them prettier too
 	if !strings.Contains(filename, ".") {
 		filename = filename + "." + fileExt

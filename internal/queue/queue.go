@@ -38,7 +38,8 @@ var (
 
 // Init opens existing queue or creates a new one and returns the queue instance
 // Don't forget to call defer queue.Cleanup() in appropriate place!
-func Init(runtimeSettings settings.Settings) (Queue, error) {
+func Init() (Queue, error) {
+	runtimeSettings := settings.Get()
 	logger := runtimeSettings.Logger()
 
 	db, err := nutsdb.Open(

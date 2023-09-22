@@ -106,7 +106,7 @@ func main() {
 
 	// this method tries to open already existing queue, or if it does not exist —
 	// creates a new one and populates it with provided starting URL
-	q, err := queue.Init(runtimeSettings)
+	q, err := queue.Init()
 	if err != nil {
 		panic(fmt.Sprintf("can't initialize queue: %v", err))
 	}
@@ -116,6 +116,11 @@ func main() {
 			logger.Error().Err(err).Msg("can't cleanup queue")
 		}
 	}()
+
+	err = crawler.Init()
+	if err != nil {
+		panic(fmt.Sprintf("can't initialize crawler: %v", err))
+	}
 
 	// facility to gracefully interrupt the program execution
 	sigCh := make(chan os.Signal, 1)
