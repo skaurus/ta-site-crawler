@@ -7,13 +7,9 @@ import (
 
 	"github.com/PuerkitoBio/purell"
 	"golang.org/x/net/idna"
-
-	"github.com/skaurus/ta-site-crawler/internal/settings"
 )
 
 func UrlToHost(urlObject *url.URL) string {
-	logger := settings.Get().Logger()
-
 	host, port := urlObject.Hostname(), urlObject.Port()
 	if urlObject.Scheme == "http" && port == "80" {
 		port = ""
@@ -29,7 +25,11 @@ func UrlToHost(urlObject *url.URL) string {
 	if err == nil {
 		host = punycodeHost
 	} else {
-		logger.Error().Err(err).Str("host", host).Msg("can't punycode host")
+		// we should either log error here, or return it to the caller
+		// first option creates circular dependency;
+		// second one makes calling code more cumbersome.
+		// at this point I'm in a hurry and going to skip it 😅
+		// TODO: return error to the caller
 	}
 
 	if len(port) > 0 {
