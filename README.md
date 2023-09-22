@@ -16,9 +16,9 @@ This repository is a solution to a test assigment that goes like this:
 >
 > There are no restrictions on 3rd-party libraries.
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/skaurus/ta-site-crawler)](https://goreportcard.com/report/github.com/skaurus/ta-site-crawler)
-
 ## Solution
+
+[![Go Report Card](https://goreportcard.com/badge/github.com/skaurus/ta-site-crawler)](https://goreportcard.com/report/github.com/skaurus/ta-site-crawler)
 
 Please see my reasoning in the [docs/madr](docs/madr) folder.
 [MADR](https://adr.github.io/madr/) is `a lean template to capture any decisions in a structured way`.
