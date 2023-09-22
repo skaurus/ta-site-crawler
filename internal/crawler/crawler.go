@@ -139,8 +139,8 @@ func (w *worker) Run(ctx context.Context, wg *sync.WaitGroup) {
 					// let's check if anything at all is at work right now
 					// if there are no jobs and no one is doing anything — we can stop
 					// (I'm not completely happy with this solution — bc now we have ctx,
-					// wg and atomic uint. I was thinking about storing "working on" set
-					// in NutsDB, but that would pose its own reliability problems)
+					// wg and atomic uint at the same time. I was thinking about storing
+					// "working on" set in db, but that would pose its own problems)
 					if tasksInProgress == 0 {
 						logger.Info().Uint8("workerID", w.id).Msg("worker is done")
 						wg.Done()

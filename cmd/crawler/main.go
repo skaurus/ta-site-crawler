@@ -139,22 +139,32 @@ func main() {
 		panic(fmt.Sprintf("can't spawn workers: %v", err))
 	}
 
-forLoop:
-	for {
-		select {
-		case sig := <-sigCh:
-			logger.Warn().Any("sig", sig).Msg("got signal, exiting...")
-			cancel()
-			break forLoop
+	// Use a channel to signal when workers are done.
+	exitCh := make(chan struct{})
+
+	go func() {
+	forLoop:
+		for {
+			select {
+			case sig := <-sigCh:
+				logger.Warn().Any("sig", sig).Msg("got signal, exiting...")
+				cancel()
+				break forLoop
+			}
 		}
-	}
-	close(sigCh)
+		close(sigCh)
+	}()
 
-	wg.Wait()
+	// wait for all workers to finish and signal to close exitCh
+	go func() {
+		wg.Wait()     // Wait for all workers to finish.
+		close(exitCh) // Signal the main function that it's okay to exit.
+	}()
+
+	// block until exitCh is closed
+	<-exitCh
+
 	logger.Warn().Msg("exited")
-
-	// TODO
-	// currently we can ask goroutines to stop from the main. we need to be able to ask main to exit from goroutines
 }
 
 func reportFlagsError(errText string) {
