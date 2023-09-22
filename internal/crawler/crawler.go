@@ -245,7 +245,9 @@ func (w *worker) work() (err error) {
 		return nil
 	}
 	fullFilenameWithoutExt := ""
-	if filenameWasEmpty {
+	// besided filenameWasEmpty case, we can have non-empty filenames without
+	// the extension. let's make them prettier too
+	if !strings.Contains(filename, ".") {
 		filename = filename + "." + fileExt
 		fullFilenameWithoutExt = fullFilename
 		fullFilename = fullFilename + "." + fileExt
