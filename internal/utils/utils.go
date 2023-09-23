@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/purell"
-	"github.com/rs/zerolog"
 	"golang.org/x/exp/maps"
 	"golang.org/x/net/idna"
 
@@ -75,9 +74,7 @@ func NormalizeUrlObject(urlObject *url.URL) (*url.URL, error) {
 }
 
 // UrlToFileStructure converts URL path to a file path and name
-func UrlToFileStructure(logger *zerolog.Logger, urlObject *url.URL) (path, filename string, err error) {
-	logger.Debug().Str("urlPath", urlObject.Path).Msg("converting this path to file structure")
-
+func UrlToFileStructure(urlObject *url.URL) (path, filename string, err error) {
 	// path could be empty, filename could be empty as well (e.g., https://example.com/
 	// or https://example.com/path/), but we will handle it
 	urlPath := strings.TrimPrefix(strings.TrimSuffix(urlObject.Path, "/"), "/")
@@ -112,8 +109,6 @@ func UrlToFileStructure(logger *zerolog.Logger, urlObject *url.URL) (path, filen
 	if len(paramStrings) > 0 {
 		filename = fmt.Sprintf("%s__%s", filename, strings.Join(paramStrings, "_"))
 	}
-
-	logger.Debug().Str("urlPath", urlObject.Path).Str("path", path).Str("filename", filename).Msg("given path amounted to this file structure")
 
 	return
 }
