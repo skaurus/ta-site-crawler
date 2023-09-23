@@ -188,12 +188,8 @@ func (w *worker) work() (err error) {
 	// let's convert URL path to a file path and name, where we will store
 	// the crawled document
 	w.logger.Debug().Str("urlPath", urlObject.Path).Msg("converting this path to file structure")
-	path, filename, err := utils.UrlToFileStructure(urlObject)
+	path, filename := utils.UrlToFileStructure(urlObject)
 	w.logger.Debug().Str("urlPath", urlObject.Path).Str("path", path).Str("filename", filename).Msg("given path amounted to this file structure")
-	if err != nil {
-		w.logger.Error().Err(err).Str("path", path).Msg("worker can't create path folder")
-		return err
-	}
 	// if this is the case, we will later try to append a proper file extension to it
 	filenameWasEmpty := filename == settings.RootFilename
 	fullPath := settings.Get().OutputDir() + "/" + settings.CrawlingDir + "/" + path

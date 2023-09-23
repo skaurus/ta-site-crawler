@@ -74,7 +74,7 @@ func NormalizeUrlObject(urlObject *url.URL) (*url.URL, error) {
 }
 
 // UrlToFileStructure converts URL path to a file path and name
-func UrlToFileStructure(urlObject *url.URL) (path, filename string, err error) {
+func UrlToFileStructure(urlObject *url.URL) (path, filename string) {
 	// path could be empty, filename could be empty as well (e.g., https://example.com/
 	// or https://example.com/path/), but we will handle it
 	urlPath := strings.TrimPrefix(strings.TrimSuffix(urlObject.Path, "/"), "/")
