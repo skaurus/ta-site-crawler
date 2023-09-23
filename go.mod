@@ -7,6 +7,7 @@ require (
 	github.com/nutsdb/nutsdb v0.14.1
 	github.com/rs/zerolog v1.30.0
 	github.com/spf13/pflag v1.0.5
+	golang.org/x/exp v0.0.0-20230905200255-921286631fa9
 	golang.org/x/net v0.0.0-20220617184016-355a448f1bc9
 )
 

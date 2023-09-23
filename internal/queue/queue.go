@@ -2,7 +2,6 @@ package queue
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/nutsdb/nutsdb"
 
@@ -52,7 +51,6 @@ func Init() (Queue, error) {
 
 	err = db.Update(
 		func(tx *nutsdb.Tx) error {
-			fmt.Printf("init\n")
 			queueSize, err := tx.LSize(listBucket, mainListKey)
 			if err != nil && !errors.Is(err, nutsdb.ErrListNotFound) {
 				logger.Debug().Err(err).Msg("LSize failed")

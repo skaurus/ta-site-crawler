@@ -3,10 +3,12 @@ package utils
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/PuerkitoBio/purell"
 	"github.com/rs/zerolog"
+	"golang.org/x/exp/maps"
 	"golang.org/x/net/idna"
 
 	"github.com/skaurus/ta-site-crawler/internal/settings"
@@ -92,6 +94,24 @@ func UrlToFileStructure(logger *zerolog.Logger, urlObject *url.URL) (path, filen
 		filename = settings.RootFilename
 	}
 	path = strings.Join(urlPathElements[:len(urlPathElements)-1], "/")
+
+	// some symbols are allowed in URL paths, but not necessarily in directory names
+	// so far I know about one such symbol, asterisk (*), which is not allowed on Windows
+	path = strings.ReplaceAll(path, "*", "_")
+
+	// also, we need to make unique filenames for different sets of GET parameters
+	var params = urlObject.Query()
+	sortedParamNames := maps.Keys(params)
+	slices.Sort(sortedParamNames)
+	paramStrings := make([]string, 0, len(sortedParamNames))
+	for _, paramName := range sortedParamNames {
+		paramValues := params[paramName]
+		paramStrings = append(paramStrings, fmt.Sprintf("%s-%s", paramName, strings.Join(paramValues, "-")))
+	}
+	if len(paramStrings) > 0 {
+		filename = fmt.Sprintf("%s__%s", filename, strings.Join(paramStrings, "_"))
+	}
+
 	logger.Debug().Str("urlPath", urlObject.Path).Str("path", path).Str("filename", filename).Msg("given path amounted to this file structure")
 
 	return
