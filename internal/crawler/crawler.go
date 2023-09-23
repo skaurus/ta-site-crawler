@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/rs/zerolog"
 	"golang.org/x/net/context"
 	"golang.org/x/net/html"
 	"golang.org/x/net/publicsuffix"
@@ -24,9 +25,9 @@ import (
 )
 
 type worker struct {
-	id        uint8
-	q         queue.Queue
-	outputDir string
+	id     uint8
+	q      queue.Queue
+	logger *zerolog.Logger
 }
 
 type Worker interface {
@@ -35,13 +36,6 @@ type Worker interface {
 
 var (
 	ErrNoWorkToDo = errors.New("no work to do")
-)
-
-const (
-	crawlingDir     = "crawled"
-	rootFilename    = "index"
-	filePermissions = 0644
-	dirPermissions  = 0755
 )
 
 var (
@@ -99,33 +93,35 @@ func Init() (err error) {
 // n is a number of workers to spawn
 func SpawnWorkers(ctx context.Context, wg *sync.WaitGroup, q queue.Queue, runtimeSettings settings.Settings) error {
 	for i := uint8(0); i < runtimeSettings.WorkersCnt(); i++ {
-		w := newWorker(q, runtimeSettings.OutputDir()+"/"+crawlingDir)
+		w := newWorker(q)
 		go w.Run(ctx, wg)
 	}
 
 	return nil
 }
 
-func newWorker(q queue.Queue, outputDir string) (w Worker) {
-	w = &worker{
-		id:        nextID,
-		q:         q,
-		outputDir: outputDir,
-	}
-	nextID++
+func newWorker(q queue.Queue) (w Worker) {
+	// I do this instead of using directly nextID to lessen the risks of someone
+	// in the future incidentally using nextID _after it was incremented_.
+	// `id` will always be safe to use.
+	id := nextID
+	logger := settings.Get().Logger().With().Uint8("workerID", id).Logger()
+	nextID++ // use `id` var instead of me, please! 🥹
 
-	return w
+	return &worker{
+		id:     id,
+		q:      q,
+		logger: &logger,
+	}
 }
 
 func (w *worker) Run(ctx context.Context, wg *sync.WaitGroup) {
-	logger := settings.Get().Logger()
-
-	logger.Info().Uint8("workerID", w.id).Msg("worker is started")
+	w.logger.Info().Uint8("workerID", w.id).Msg("worker is started")
 
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info().Uint8("workerID", w.id).Msg("worker is done")
+			w.logger.Info().Msg("worker is done")
 			wg.Done()
 			return
 		default:
@@ -135,30 +131,28 @@ func (w *worker) Run(ctx context.Context, wg *sync.WaitGroup) {
 			err := w.work()
 			if err != nil {
 				if errors.Is(err, ErrNoWorkToDo) {
-					logger.Info().Uint8("workerID", w.id).Msg("worker has no work to do")
+					w.logger.Info().Msg("worker has no work to do")
 					// let's check if anything at all is at work right now
 					// if there are no jobs and no one is doing anything — we can stop
 					// (I'm not completely happy with this solution — bc now we have ctx,
 					// wg and atomic uint at the same time. I was thinking about storing
 					// "working on" set in db, but that would pose its own problems)
 					if tasksInProgress == 0 {
-						logger.Info().Uint8("workerID", w.id).Msg("worker is done")
+						w.logger.Info().Msg("worker is done")
 						wg.Done()
 						return
 					}
 				}
-				logger.Error().Uint8("workerID", w.id).Err(err).Msg("worker got an error")
+				w.logger.Error().Err(err).Msg("worker got an error")
 			}
 		}
 	}
 }
 
 func (w *worker) work() (err error) {
-	logger := settings.Get().Logger()
-
 	defer func() {
 		if err := recover(); err != nil {
-			logger.Error().Uint8("workerID", w.id).Any("recover", err).Msg("worker recovered from panic")
+			w.logger.Error().Any("recover", err).Msg("worker recovered from panic")
 		}
 	}()
 
@@ -169,7 +163,7 @@ func (w *worker) work() (err error) {
 	if len(urlString) == 0 {
 		return ErrNoWorkToDo
 	}
-	logger.Info().Uint8("workerID", w.id).Str("task", urlString).Msg("worker got a task")
+	w.logger.Info().Str("task", urlString).Msg("worker got a task")
 
 	atomic.AddUint32(&tasksInProgress, 1)
 	// 🤯, but the "smart guys" say that "every" programmer should know what
@@ -183,44 +177,41 @@ func (w *worker) work() (err error) {
 
 	urlObject, err := url.Parse(urlString)
 	if err != nil {
-		logger.Error().Uint8("workerID", w.id).Err(err).Str("task", urlString).Msg("worker can't parse an url")
+		w.logger.Error().Err(err).Str("task", urlString).Msg("worker can't parse an url")
 		return err
 	}
 	if !urlObject.IsAbs() {
-		logger.Error().Uint8("workerID", w.id).Err(err).Str("task", urlString).Msg("worker got not an absolute url")
+		w.logger.Error().Err(err).Str("task", urlString).Msg("worker got not an absolute url")
 		return nil
 	}
 
-	// convert URL path to a file path and name
-	// path could be empty, file name could be empty as well (e.g., https://example.com/
-	// or https://example.com/path/), but we will handle it
-	logger.Debug().Uint8("workerID", w.id).Str("urlPath", urlObject.Path).Msg("worker got url path")
-	urlPath := strings.TrimPrefix(strings.TrimSuffix(urlObject.Path, "/"), "/")
-	urlPathElements := strings.Split(urlPath, "/")
-	filename := urlPathElements[len(urlPathElements)-1]
-	filenameWasEmpty := false
-	if len(filename) == 0 {
-		filenameWasEmpty = true
-		filename = rootFilename // we will try to add relevant extension later
+	// let's convert URL path to a file path and name, where we will store
+	// the crawled document
+	path, filename, err := utils.UrlToFileStructure(w.logger, urlObject)
+	if err != nil {
+		w.logger.Error().Err(err).Str("path", path).Msg("worker can't create path folder")
+		return err
 	}
-	subfolder := strings.Join(urlPathElements[:len(urlPathElements)-1], "/")
-	logger.Debug().Uint8("workerID", w.id).Str("urlPath", urlObject.Path).Str("filename", filename).Str("subfolder", subfolder).Msg("worker got filename and subfolder from url")
-	fullFilename := w.outputDir + "/" + subfolder + "/" + filename
+	// if this is the case, we will later try to append a proper file extension to it
+	filenameWasEmpty := filename == settings.RootFilename
+	fullPath := settings.Get().OutputDir() + "/" + settings.CrawlingDir + "/" + path
+	fullFilename := fullPath + "/" + filename
+
+	err = os.MkdirAll(fullPath, settings.DirPermissions)
+	if err != nil {
+		w.logger.Error().Err(err).Str("folder", fullPath).Msg("can't create folder")
+		return
+	}
 
 	// check if the file is already downloaded; if it is, there is nothing to do
-	err = os.MkdirAll(w.outputDir+"/"+subfolder, dirPermissions)
-	if err != nil {
-		logger.Error().Uint8("workerID", w.id).Err(err).Str("folder", w.outputDir+"/"+subfolder).Msg("worker can't create path folder")
-		return err
-	}
 	if _, err := os.Stat(fullFilename); err == nil {
-		logger.Error().Uint8("workerID", w.id).Str("fullFilename", fullFilename).Msg("worker found existing file, skipping")
-		return err
+		w.logger.Error().Str("fullFilename", fullFilename).Msg("worker found existing file, skipping")
+		return nil
 	}
 
 	resp, err := httpClient.Get(urlString)
 	if err != nil {
-		logger.Error().Uint8("workerID", w.id).Err(err).Msg("worker got an http error")
+		w.logger.Error().Err(err).Msg("worker got an http error")
 		return err
 	}
 	defer func() {
@@ -228,21 +219,20 @@ func (w *worker) work() (err error) {
 	}()
 
 	if statusOK := resp.StatusCode >= 200 && resp.StatusCode < 300; !statusOK {
-		logger.Warn().Uint8("workerID", w.id).Int("statusCode", resp.StatusCode).Msg("worker got bad http status code")
+		w.logger.Warn().Int("statusCode", resp.StatusCode).Msg("worker got bad http status code")
 		return nil
 	}
 
 	contentType := resp.Header.Get("Content-Type")
-	// now, content-type could be something like "text/html; charset=utf-8"
-	// and I'm pretty sure it can be "text/html ;charset = utf-8" and browsers
+	// now, content-type will likely be something like "text/html; charset=utf-8",
+	// and we are interested in just "text/html". also, I'm pretty sure in the wild
+	// big Internet it can be something like "text/html ;charset = utf-8" and browsers
 	// will still work. maybe it could be even worse
-	if len(contentType) > 0 {
-		contentTypeParts := strings.Split(contentType, ";")
-		contentType = strings.TrimSpace(contentTypeParts[0])
-	}
+	contentTypeParts := strings.Split(contentType, ";")
+	contentType = strings.ToLower(strings.TrimSpace(contentTypeParts[0]))
 	fileExt, ok := allowedContentTypes2Ext[contentType]
 	if !ok {
-		logger.Warn().Uint8("workerID", w.id).Str("contentType", contentType).Str("urlString", urlString).Msg("worker got a non-text content-type")
+		w.logger.Warn().Str("contentType", contentType).Str("urlString", urlString).Msg("worker got a non-text content-type")
 		return nil
 	}
 	fullFilenameWithoutExt := ""
@@ -255,27 +245,27 @@ func (w *worker) work() (err error) {
 	}
 
 	// os.O_CREATE|os.O_EXCL requires file to not exist
-	tempFile, err := os.OpenFile(fullFilename+".temp", os.O_WRONLY|os.O_CREATE|os.O_EXCL, filePermissions)
+	tempFile, err := os.OpenFile(fullFilename+".temp", os.O_WRONLY|os.O_CREATE|os.O_EXCL, settings.FilePermissions)
 	if err != nil {
-		logger.Error().Uint8("workerID", w.id).Err(err).Str("fullFilename_temp", fullFilename+".temp").Msg("worker can't create a temp file")
+		w.logger.Error().Err(err).Str("fullFilename_temp", fullFilename+".temp").Msg("worker can't create a temp file")
 		return err
 	}
 	// io.Copy directly to tempFile would be nice, but we will need the body later
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		logger.Error().Uint8("workerID", w.id).Err(err).Msg("worker can't read response body")
+		w.logger.Error().Err(err).Msg("worker can't read response body")
 		return err
 	}
 	_, err = tempFile.Write(body)
 	if err != nil {
-		logger.Error().Uint8("workerID", w.id).Err(err).Str("fullFilename_temp", fullFilename+".temp").Msg("worker can't write response body to a temp file")
+		w.logger.Error().Err(err).Str("fullFilename_temp", fullFilename+".temp").Msg("worker can't write response body to a temp file")
 		return err
 	}
 
 	// now we can atomically rename the file
 	err = os.Rename(fullFilename+".temp", fullFilename)
 	if err != nil {
-		logger.Error().Uint8("workerID", w.id).Err(err).Str("fullFilename_temp", fullFilename+".temp").Str("fullFilename", fullFilename).Msg("worker can't rename temp file")
+		w.logger.Error().Err(err).Str("fullFilename_temp", fullFilename+".temp").Str("fullFilename", fullFilename).Msg("worker can't rename temp file")
 		return err
 	}
 	// to make that early exit above ("found existing file, skipping") work, we
@@ -285,13 +275,13 @@ func (w *worker) work() (err error) {
 		// that's why I ignore the error
 		_ = os.WriteFile(
 			fullFilenameWithoutExt,
-			[]byte(fmt.Sprintf("princess is in another castle: %s.%s\n(this is a marker file, please do not delete it)", rootFilename, fileExt)),
-			filePermissions,
+			[]byte(fmt.Sprintf("princess is in another castle: %s.%s\n(this is a marker file, please do not delete it)", settings.RootFilename, fileExt)),
+			settings.FilePermissions,
 		)
 	}
 	err = w.q.MarkAsProcessed(urlString)
 	if err != nil {
-		logger.Error().Uint8("workerID", w.id).Err(err).Str("urlString", urlString).Msg("worker can't mark url as processed")
+		w.logger.Error().Err(err).Str("urlString", urlString).Msg("worker can't mark url as processed")
 	}
 
 	// now we need to parse the body and find all links from the same domain.
@@ -303,7 +293,7 @@ func (w *worker) work() (err error) {
 	}
 	doc, err := html.Parse(bytes.NewReader(body))
 	if err != nil {
-		logger.Error().Uint8("workerID", w.id).Err(err).Str("urlString", urlString).Msg("worker can't parse html")
+		w.logger.Error().Err(err).Str("urlString", urlString).Msg("worker can't parse html")
 		return err
 	}
 
@@ -332,14 +322,14 @@ func (w *worker) work() (err error) {
 	for _, foundURL := range foundURLs {
 		newUrlObject, err := url.Parse(foundURL)
 		if err != nil {
-			logger.Error().Uint8("workerID", w.id).Err(err).Str("foundURL", foundURL).Msg("worker can't parse found url")
+			w.logger.Error().Err(err).Str("foundURL", foundURL).Msg("worker can't parse found url")
 			continue
 		}
 
 		newUrlObject = urlObject.ResolveReference(newUrlObject)
 		newUrlObject, err = utils.NormalizeUrlObject(newUrlObject)
 		if err != nil {
-			logger.Error().Uint8("workerID", w.id).Err(err).Str("foundURL", foundURL).Msg("worker can't parse normalized version of found url")
+			w.logger.Error().Err(err).Str("foundURL", foundURL).Msg("worker can't parse normalized version of found url")
 		}
 
 		if utils.UrlToHost(newUrlObject) != workingHost {
@@ -348,7 +338,7 @@ func (w *worker) work() (err error) {
 
 		isProcessed, err := w.q.IsProcessed(foundURL)
 		if err != nil {
-			logger.Error().Uint8("workerID", w.id).Err(err).Str("foundURL", foundURL).Msg("worker can't check if found url is processed")
+			w.logger.Error().Err(err).Str("foundURL", foundURL).Msg("worker can't check if found url is processed")
 		}
 		if isProcessed {
 			continue
@@ -356,7 +346,7 @@ func (w *worker) work() (err error) {
 
 		err = w.q.AddTask(foundURL)
 		if err != nil {
-			logger.Error().Uint8("workerID", w.id).Err(err).Str("foundURL", foundURL).Msg("worker can't add found url to queue")
+			w.logger.Error().Err(err).Str("foundURL", foundURL).Msg("worker can't add found url to queue")
 		}
 	}
 

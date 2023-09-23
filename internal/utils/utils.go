@@ -6,7 +6,10 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/purell"
+	"github.com/rs/zerolog"
 	"golang.org/x/net/idna"
+
+	"github.com/skaurus/ta-site-crawler/internal/settings"
 )
 
 func UrlToHost(urlObject *url.URL) string {
@@ -39,8 +42,11 @@ func UrlToHost(urlObject *url.URL) string {
 	return host
 }
 
-// UrlToOutputFolder returns the name of the folder for a given domain
-func UrlToOutputFolder(urlObject *url.URL) string {
+// DomainToOutputFolder returns the name of the folder for a given domain; this
+// folder will hold all the files crawled from this domain, and our system files.
+// That allows to have multiple crawlers working in parallel, given they crawl
+// different sites.
+func DomainToOutputFolder(urlObject *url.URL) string {
 	host := UrlToHost(urlObject)
 	var port string
 	if strings.Contains(host, ":") {
@@ -64,4 +70,29 @@ func NormalizeUrlObject(urlObject *url.URL) (*url.URL, error) {
 	// unfortunately, purell lib returns only strings, not an *url.URL
 	normalizedURL := purell.NormalizeURL(urlObject, purell.FlagsSafe)
 	return url.Parse(normalizedURL)
+}
+
+// UrlToFileStructure converts URL path to a file path and name
+func UrlToFileStructure(logger *zerolog.Logger, urlObject *url.URL) (path, filename string, err error) {
+	logger.Debug().Str("urlPath", urlObject.Path).Msg("converting this path to file structure")
+
+	// path could be empty, filename could be empty as well (e.g., https://example.com/
+	// or https://example.com/path/), but we will handle it
+	urlPath := strings.TrimPrefix(strings.TrimSuffix(urlObject.Path, "/"), "/")
+	urlPathElements := strings.Split(urlPath, "/")
+	filename = urlPathElements[len(urlPathElements)-1]
+	if len(filename) == 0 {
+		// we have possible filename collisions here (different documents served
+		// from /, /_index (with, say, content-type text/html), /_index.html).
+		// with the `_index` instead of just `index` it is not so likely though.
+		// also, it is not so obvious how to fix that when we do not yet know
+		// what filenames we actually will receive from the server.
+		// so let's just hope it will be alright and fix it when we actually hit
+		// the problem, instead of creating complexity from the get go.
+		filename = settings.RootFilename
+	}
+	path = strings.Join(urlPathElements[:len(urlPathElements)-1], "/")
+	logger.Debug().Str("urlPath", urlObject.Path).Str("path", path).Str("filename", filename).Msg("given path amounted to this file structure")
+
+	return
 }

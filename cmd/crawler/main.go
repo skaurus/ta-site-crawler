@@ -74,10 +74,10 @@ func init() {
 		panic(fmt.Sprintf("can't get absolute path for %s", outputDir))
 	}
 
-	subfolder := utils.UrlToOutputFolder(urlObject)
+	subfolder := utils.DomainToOutputFolder(urlObject)
 	outputDir = outputDir + "/" + subfolder
 
-	err = os.Mkdir(outputDir, 0755)
+	err = os.Mkdir(outputDir, settings.DirPermissions)
 	if err != nil && !os.IsExist(err) {
 		panic(fmt.Sprintf("can't create subfolder %s: %v", outputDir, err))
 	}
@@ -90,7 +90,7 @@ func init() {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
 	} else {
 		logFullPath := outputDir + "/" + logFilename
-		logFile, err := os.OpenFile(logFullPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		logFile, err := os.OpenFile(logFullPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, settings.FilePermissions)
 		if err != nil {
 			panic(fmt.Sprintf("can't create logfile %s: %v", logFullPath, err))
 		}
