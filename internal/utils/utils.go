@@ -95,9 +95,10 @@ func UrlToFileStructure(logger *zerolog.Logger, urlObject *url.URL) (path, filen
 	}
 	path = strings.Join(urlPathElements[:len(urlPathElements)-1], "/")
 
-	// some symbols are allowed in URL paths, but not necessarily in directory names
+	// some symbols are allowed in URL paths, but not necessarily in filesystem names
 	// so far I know about one such symbol, asterisk (*), which is not allowed on Windows
 	path = strings.ReplaceAll(path, "*", "_")
+	filename = strings.ReplaceAll(filename, "*", "_")
 
 	// also, we need to make unique filenames for different sets of GET parameters
 	var params = urlObject.Query()
