@@ -132,8 +132,11 @@ func (w *worker) Run(ctx context.Context, wg *sync.WaitGroup) {
 			if err != nil {
 				if errors.Is(err, ErrNoWorkToDo) {
 					w.logger.Info().Msg("worker has no work to do")
-					// let's check if anything at all is at work right now
-					// if there are no jobs and no one is doing anything — we can stop
+					// even if we got ErrNoWorkToDo, that does not mean that we
+					// are done - some other worker can be working right now and
+					// add some tasks to the queue later
+					// let's check if anything at all is at work right now, and
+					// if no one is doing anything — we can stop
 					// (I'm not completely happy with this solution — bc now we have ctx,
 					// wg and atomic uint at the same time. I was thinking about storing
 					// "working on" set in db, but that would pose its own problems)
@@ -143,6 +146,9 @@ func (w *worker) Run(ctx context.Context, wg *sync.WaitGroup) {
 						return
 					}
 				}
+				// error should already be logged inside work()... but what if not?!
+				// as always — do remember that code could change and such things
+				// could be inadvertently introduced later
 				w.logger.Error().Err(err).Msg("worker got an error")
 			}
 		}
@@ -237,7 +243,10 @@ func (w *worker) work() (err error) {
 	// besides filenameWasEmpty case, we can have non-empty filenames without
 	// the extension. let's make them prettier too
 	if !strings.Contains(filename, ".") {
-		filename = filename + "." + fileExt
+		// this new value is not used later in function, and golangci-lint is
+		// not happy about it. but I prefer to keep it consistent, because
+		// code can change later
+		filename = filename + "." + fileExt //nolint:ineffassign,staticcheck
 		fullFilenameWithoutExt = fullFilename
 		fullFilename = fullFilename + "." + fileExt
 	}
@@ -316,7 +325,13 @@ func (w *worker) work() (err error) {
 	}
 	parseNode(doc)
 
-	workingHost := utils.UrlToHost(urlObject)
+	workingHost, err := utils.UrlToHost(urlObject)
+	if err != nil {
+		// that should be impossible, because we already checked that the current
+		// domain does not make UrlToHost to fail (see panic in DomainToOutputFolder)
+		w.logger.Error().Err(err).Str("urlString", urlString).Msg("UrlToHost failed")
+		return err
+	}
 	for _, foundURL := range foundURLs {
 		newUrlObject, err := url.Parse(foundURL)
 		if err != nil {
@@ -330,7 +345,14 @@ func (w *worker) work() (err error) {
 			w.logger.Error().Err(err).Str("foundURL", foundURL).Msg("worker can't parse normalized version of found url")
 		}
 
-		if utils.UrlToHost(newUrlObject) != workingHost {
+		newUrlHost, err := utils.UrlToHost(newUrlObject)
+		if err != nil {
+			// we didn't fail in UrlToHost with the current domain (see panic
+			// in DomainToOutputFolder); if we fail here, that means it is a
+			// different host, so we should skip it
+			continue
+		}
+		if newUrlHost != workingHost {
 			continue
 		}
 

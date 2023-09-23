@@ -13,7 +13,7 @@ import (
 	"github.com/skaurus/ta-site-crawler/internal/settings"
 )
 
-func UrlToHost(urlObject *url.URL) string {
+func UrlToHost(urlObject *url.URL) (string, error) {
 	host, port := urlObject.Hostname(), urlObject.Port()
 	if urlObject.Scheme == "http" && port == "80" {
 		port = ""
@@ -29,18 +29,14 @@ func UrlToHost(urlObject *url.URL) string {
 	if err == nil {
 		host = punycodeHost
 	} else {
-		// we should either log error here, or return it to the caller
-		// first option creates circular dependency;
-		// second one makes calling code more cumbersome.
-		// at this point I'm in a hurry and going to skip it 😅
-		// TODO: return error to the caller
+		return "", fmt.Errorf("punycode.ToUnicode failed: %w", err)
 	}
 
 	if len(port) > 0 {
 		host = host + ":" + port
 	}
 
-	return host
+	return host, nil
 }
 
 // DomainToOutputFolder returns the name of the folder for a given domain; this
@@ -48,7 +44,14 @@ func UrlToHost(urlObject *url.URL) string {
 // That allows to have multiple crawlers working in parallel, given they crawl
 // different sites.
 func DomainToOutputFolder(urlObject *url.URL) string {
-	host := UrlToHost(urlObject)
+	host, err := UrlToHost(urlObject)
+	if err != nil {
+		// QoL feature I introduced in UrlToHost — to have unicode folders for
+		// sites instead of xn--... — makes our code fallible to additional errors
+		// in cases I've tested it works. in practice that could be a mistake 🤔
+		panic(fmt.Sprintf("can't work with this domain: %v", err))
+	}
+
 	var port string
 	if strings.Contains(host, ":") {
 		parts := strings.Split(host, ":")

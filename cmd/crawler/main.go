@@ -144,7 +144,7 @@ func main() {
 
 	go func() {
 	forLoop:
-		for {
+		for { //nolint:gosimple
 			select {
 			case sig := <-sigCh:
 				logger.Warn().Any("sig", sig).Msg("got signal, exiting...")
