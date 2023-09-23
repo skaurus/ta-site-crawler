@@ -155,7 +155,11 @@ func (w *worker) Run(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-func (w *worker) work() (err error) {
+// work does the actual work 😉.
+// also, it violates gocyclo complexity bar (barely), and gocognit (quite seriously).
+// but I feel that any decomposition would make it actually harder to reason about
+// now you see everything in one place, and it is not that hard to read top to bottom
+func (w *worker) work() (err error) { //nolint:gocognit,gocyclo
 	defer func() {
 		if err := recover(); err != nil {
 			w.logger.Error().Any("recover", err).Msg("worker recovered from panic")

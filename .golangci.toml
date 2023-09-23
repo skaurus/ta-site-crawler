@@ -1,0 +1,18 @@
+[linters]
+enable = [
+    # enabled by default
+    "errcheck",
+    "gosimple",
+    "govet",
+    "ineffassign",
+    "staticcheck",
+    "unused",
+
+    # enabled by me
+    "bodyclose",
+    "durationcheck",
+    "exhaustive",
+    "gocognit",
+    "gocyclo",
+    "zerologlint",
+]
