@@ -370,6 +370,14 @@ func (w *worker) work() (err error) { //nolint:gocognit,gocyclo
 			continue
 		}
 
+		isAlreadyQueued, err := w.q.IsInQueue(urlToProcess)
+		if err != nil {
+			w.logger.Error().Err(err).Str("urlToProcess", urlToProcess).Msg("worker can't check if found url is already queued")
+		}
+		if isAlreadyQueued {
+			continue
+		}
+
 		err = w.q.AddTask(urlToProcess)
 		if err != nil {
 			w.logger.Error().Err(err).Str("urlToProcess", urlToProcess).Msg("worker can't add found url to queue")

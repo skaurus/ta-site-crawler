@@ -16,6 +16,7 @@ type Queue interface {
 	Cleanup() error
 	AddTask(string) error
 	GetTask() (string, error)
+	IsInQueue(string) (bool, error)
 	MarkAsProcessed(string) error
 	IsProcessed(string) (bool, error)
 }
@@ -152,6 +153,31 @@ func (q *queue) GetTask() (value string, err error) {
 	}
 
 	return string(val), nil
+}
+
+func (q *queue) IsInQueue(value string) (isExisting bool, err error) {
+	logger := settings.Get().Logger()
+
+	logger.Debug().Msg("IsInQueue")
+
+	err = q.nutsDB.Update(
+		func(tx *nutsdb.Tx) error {
+			val := []byte(value)
+
+			isExisting, err = tx.SIsMember(setBucket, mainSetKey, val)
+			if err != nil && !errors.Is(err, nutsdb.ErrBucketNotFound) {
+				logger.Debug().Err(err).Msg("SIsMember failed")
+				return err
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return false, err
+	}
+
+	return
 }
 
 func (q *queue) MarkAsProcessed(value string) (err error) {
