@@ -78,7 +78,7 @@ func (q *queue) Cleanup() error {
 func addTask(tx *nutsdb.Tx, val []byte) error {
 	logger := settings.Get().Logger()
 
-	logger.Debug().Msg("addTask")
+	logger.Trace().Msg("addTask")
 	exists, err := tx.SIsMember(setBucket, mainSetKey, val)
 	if err != nil && !errors.Is(err, nutsdb.ErrBucketNotFound) {
 		logger.Debug().Err(err).Msg("SIsMember failed")
@@ -119,7 +119,7 @@ func (q *queue) AddTask(value string) (err error) {
 func getTask(tx *nutsdb.Tx) (val []byte, err error) {
 	logger := settings.Get().Logger()
 
-	logger.Debug().Msg("getTask")
+	logger.Trace().Msg("getTask")
 	val, err = tx.LPop(listBucket, mainListKey)
 	if err != nil {
 		// nutsdb.ErrRecordIsNil should be exported error, but it is not...
@@ -136,7 +136,7 @@ func getTask(tx *nutsdb.Tx) (val []byte, err error) {
 		return nil, err
 	}
 
-	logger.Debug().Str("val", string(val)).Msg("got from queue")
+	logger.Trace().Str("val", string(val)).Msg("got from queue")
 	return val, nil
 }
 
@@ -158,7 +158,7 @@ func (q *queue) GetTask() (value string, err error) {
 func (q *queue) IsInQueue(value string) (isExisting bool, err error) {
 	logger := settings.Get().Logger()
 
-	logger.Debug().Msg("IsInQueue")
+	logger.Trace().Msg("IsInQueue")
 
 	err = q.nutsDB.Update(
 		func(tx *nutsdb.Tx) error {
