@@ -360,17 +360,19 @@ func (w *worker) work() (err error) { //nolint:gocognit,gocyclo
 			continue
 		}
 
-		isProcessed, err := w.q.IsProcessed(foundURL)
+		urlToProcess := newUrlObject.String()
+
+		isProcessed, err := w.q.IsProcessed(urlToProcess)
 		if err != nil {
-			w.logger.Error().Err(err).Str("foundURL", foundURL).Msg("worker can't check if found url is processed")
+			w.logger.Error().Err(err).Str("urlToProcess", urlToProcess).Msg("worker can't check if found url is processed")
 		}
 		if isProcessed {
 			continue
 		}
 
-		err = w.q.AddTask(foundURL)
+		err = w.q.AddTask(urlToProcess)
 		if err != nil {
-			w.logger.Error().Err(err).Str("foundURL", foundURL).Msg("worker can't add found url to queue")
+			w.logger.Error().Err(err).Str("urlToProcess", urlToProcess).Msg("worker can't add found url to queue")
 		}
 	}
 
