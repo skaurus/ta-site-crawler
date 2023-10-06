@@ -63,4 +63,6 @@ Running is not so hard either:
 
 Crawler will create a subfolder inside a given output directory, and will download all the documents there. Also, it will be able to resume work if such subfolder already exists.
 
-`--log-to-stdout/-c` (`c` for console) flag will make it log to STDOUT for better visibility. Also you can set the HTTP requests timeout with `--http-timeout/-t` flag (default is 5 seconds).
+`--log-to-stdout/-c` (`c` for console) flag will make it log to STDOUT for better visibility. Without that flag, it will log to file inside the output directory. Also, you could control the log level with `--log-level/-l` flag (default is `debug`).
+
+Also you can set the HTTP requests timeout with `--http-timeout/-t` flag (default is 5 seconds).
