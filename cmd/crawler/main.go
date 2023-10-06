@@ -35,6 +35,7 @@ func init() {
 		outputDir    string
 		workersCnt   uint8
 		logToStdout  bool
+		logLevelName string
 		httpTimeout  uint16
 	)
 
@@ -42,6 +43,7 @@ func init() {
 	pflag.StringVarP(&outputDir, "output-dir", "d", "", "output directory to save results")
 	pflag.Uint8VarP(&workersCnt, "workers", "w", 1, "number of workers to work in parallel")
 	pflag.BoolVarP(&logToStdout, "log-to-stdout", "c", false, "log to stdout instead of file")
+	pflag.StringVarP(&logLevelName, "log-level", "l", "debug", "log level (trace, debug, info, warn, error, fatal, panic)")
 	pflag.Uint16VarP(&httpTimeout, "http-timeout", "t", 5, "HTTP timeout in seconds")
 
 	pflag.Parse()
@@ -74,6 +76,11 @@ func init() {
 		panic(fmt.Sprintf("can't get absolute path for %s", outputDir))
 	}
 
+	logLevel, err := zerolog.ParseLevel(logLevelName)
+	if err != nil {
+		reportFlagsError("--log-level/-l flag value must be one of trace, debug, info, warn, error, fatal, panic")
+	}
+
 	subfolder := utils.DomainToOutputFolder(urlObject)
 	outputDir = outputDir + "/" + subfolder
 
@@ -85,7 +92,7 @@ func init() {
 
 	// we should have a setting for dev/prod environment, and on prod we should
 	// log from level Error or something like that
-	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	zerolog.SetGlobalLevel(logLevel)
 	if logToStdout {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
 	} else {
