@@ -66,3 +66,12 @@ Crawler will create a subfolder inside a given output directory, and will downlo
 `--log-to-stdout/-c` (`c` for console) flag will make it log to STDOUT for better visibility. Without that flag, it will log to file inside the output directory. Also, you could control the log level with `--log-level/-l` flag (default is `debug`).
 
 Also you can set the HTTP requests timeout with `--http-timeout/-t` flag (default is 5 seconds).
+
+## Values I tried to demonstrate through this solution
+
+- code should be easy to manage by devops (flags, clear errors, logging)
+- practical balance between being bulletproof and not overly complex
+- comment everything that might not be clear in your code, and warn about possible failure scenarios / trade offs
+- sometimes having a long method that you can read top to bottom is better than having five smaller methods you will have to jump back and forth to understand the code flow
+- when you add something new to your stack, spend some time to be sure you're adding the right thing
+- be aware of the corner cases and potential problems
