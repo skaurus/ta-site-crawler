@@ -75,3 +75,7 @@ Also you can set the HTTP requests timeout with `--http-timeout/-t` flag (defaul
 - sometimes having a long method that you can read top to bottom is better than having five smaller methods you will have to jump back and forth to understand the code flow
 - when you add something new to your stack, spend some time to be sure you're adding the right thing
 - be aware of the corner cases and potential problems
+
+## Mistakes I made
+
+Well, as was pointed out by the author of the test assignment, "already downloaded files" can be checked by looking in the "done" folder, and "files to be downloaded" can be stored as empty files in another directory. Effectively, we can can use filesystem as a simple KV storage in this case.
